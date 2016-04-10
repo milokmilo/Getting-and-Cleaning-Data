@@ -1,12 +1,11 @@
 
-# Davide Anguita, Alessandro Ghio, Luca Oneto, Xavier Parra and Jorge L. Reyes-Ortiz. A Public Domain Dataset for Human Activity Recognition Using Smartphones. 21th European Symposium on Artificial Neural Networks, Computational Intelligence and Machine Learning, ESANN 2013. Bruges, Belgium 24-26 April 2013.
+# Davide Anguita, Alessandro Ghio, Luca Oneto, Xavier Parra and Jorge L. Reyes-Ortiz. 
+# A Public Domain Dataset for Human Activity Recognition Using Smartphones. 
+# 21th European Symposium on Artificial Neural Networks, Computational Intelligence 
+# and Machine Learning, ESANN 2013. Bruges, Belgium 24-26 April 2013.
 
-# Merges the training and the test sets to create one data set.
-# Extracts only the measurements on the mean and standard deviation for each measurement.
-# Uses descriptive activity names to name the activities in the data set
-# Appropriately labels the data set with descriptive variable names.
-# From the data set in step 4, creates a second, independent tidy data set with the average of each variable for each activity and each subject.
 
+## Reading data 
 
 if (!file.exists("data.zip")){
         url <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"       
@@ -17,49 +16,74 @@ activity <- read.table(unz("data.zip",  filename = "UCI HAR Dataset/activity_lab
                               col.names=c("activity_id","activity_name"))
 feat <- read.table(unz("data.zip", 
                          filename = "UCI HAR Dataset/features.txt")) # features
-feat_names <-  feat[,2]
 trainX <- read.table(unz("data.zip", 
-                         filename = "UCI HAR Dataset/train/X_train.txt")) # traindata
-colnames(trainX) <- feat_names
+                         filename = "UCI HAR Dataset/train/X_train.txt")) # trainData
 trainY <- read.table(unz("data.zip", 
-                         filename = "UCI HAR Dataset/train/y_train.txt")) # train_activity_id
-colnames(trainY) <- "activity_id"
+                         filename = "UCI HAR Dataset/train/y_train.txt")) # trainLabel
 SubTrain <- read.table(unz("data.zip", 
-                         filename = "UCI HAR Dataset/train/subject_train.txt")) # train_subject_id
-colnames(SubTrain) <- "subject_id"
+                         filename = "UCI HAR Dataset/train/subject_train.txt")) # trainSubject
 testX <- read.table(unz("data.zip", 
-                        filename = "UCI HAR Dataset/test/X_test.txt")) # testdata
-colnames(testX) <- feat_names
+                        filename = "UCI HAR Dataset/test/X_test.txt")) # testData
 testY <- read.table(unz("data.zip", 
-                        filename = "UCI HAR Dataset/test/y_test.txt")) # test_activity_id
-colnames(testY) <- "activity_id"
+                        filename = "UCI HAR Dataset/test/y_test.txt")) # testLabel
 SubTest <- read.table(unz("data.zip", 
-                         filename = "UCI HAR Dataset/test/subject_test.txt")) # test_subject_id
-colnames(SubTest) <- "subject_id"
+                         filename = "UCI HAR Dataset/test/subject_test.txt")) # testSubject
 
-test_data <- cbind(SubTest , testY , testX)
 
-train_data <- cbind(SubTrain , trainY , trainX)
+## 1. Merges the training and the test sets to create one data set.
 
-all_data <- rbind(train_data,test_data)
+joinData <- rbind(trainX, testX)
+joinLabel <- rbind(trainY, testY)
+joinSubject <- rbind(SubTrain, SubTest)
 
-mean_col_idx <- grep("mean",names(all_data),ignore.case=TRUE)
-mean_col_names <- names(all_data)[mean_col_idx]
-std_col_idx <- grep("std",names(all_data),ignore.case=TRUE)
-std_col_names <- names(all_data)[std_col_idx]
-meanstddata <-all_data[,c("subject_id","activity_id",mean_col_names,std_col_names)]
 
-descrnames <- merge(activity, meanstddata,
-                    by.x="activity_id",
-                    by.y="activity_id",
-                    all=TRUE)
+## 2. Extracts only the measurements on the mean and standard deviation for each measurement. 
 
-library(reshape2)
-data_melt <- melt(descrnames,id=c("activity_id","activity_name","subject_id"))
+meanStdIndices <- grep("mean\\(\\)|std\\(\\)", feat[, 2])
+joinData <- joinData[, meanStdIndices]
+names(joinData) <- gsub("\\(\\)", "", feat[meanStdIndices, 2]) # remove "()"
+names(joinData) <- gsub("mean", "Mean", names(joinData)) # capitalize M
+names(joinData) <- gsub("std", "Std", names(joinData)) # capitalize S
+names(joinData) <- gsub("-", "", names(joinData)) # remove "-" in column names 
 
-mean_data <- dcast(data_melt,activity_id + activity_name + subject_id ~ variable,mean)
 
-write.table(mean_data,"tidyData.txt")
+## 3. Uses descriptive activity names to name the activities in the data set
 
+activity[, 2] <- tolower(gsub("_", "", activity[, 2]))
+substr(activity[2, 2], 8, 8) <- toupper(substr(activity[2, 2], 8, 8))
+substr(activity[3, 2], 8, 8) <- toupper(substr(activity[3, 2], 8, 8))
+activityLabel <- activity[joinLabel[, 1], 2]
+joinLabel[, 1] <- activityLabel
+names(joinLabel) <- "activity"
+
+
+## 4. Appropriately labels the data set with descriptive activity names.
+
+names(joinSubject) <- "subject"
+cleanedData <- cbind(joinSubject, joinLabel, joinData)
+write.table(cleanedData, "tidyData.txt")
+
+
+## 5. Creates a second, independent tidy data set with the average of each variable for each activity and each subject.
+
+subjectLen <- length(table(joinSubject))
+activityLen <- dim(activity)[1]
+columnLen <- dim(cleanedData)[2]
+result <- matrix(NA, nrow=subjectLen*activityLen, ncol=columnLen) 
+result <- as.data.frame(result)
+colnames(result) <- colnames(cleanedData)
+row <- 1
+for(i in 1:subjectLen) {
+        for(j in 1:activityLen) {
+                result[row, 1] <- sort(unique(joinSubject)[, 1])[i]
+                result[row, 2] <- activity[j, 2]
+                bool1 <- i == cleanedData$subject
+                bool2 <- activity[j, 2] == cleanedData$activity
+                result[row, 3:columnLen] <- colMeans(cleanedData[bool1&bool2, 3:columnLen])
+                row <- row + 1
+        }
+}
+head(result)
+write.table(result, "meansData.txt")
 
 
